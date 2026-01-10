@@ -22,7 +22,7 @@ const LINKEDIN_API_VERSION = '202401'; // Adjust as needed
 const { Pool } = pkg;
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
 // --- AI Setup ---

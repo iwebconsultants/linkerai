@@ -19,7 +19,8 @@ services:
     container_name: linkerai-app
 
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/linkerai
+      - DATABASE_URL=postgresql://user:password@linkerai-db:5432/linkerai
+      - DATABASE_SSL=false
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
