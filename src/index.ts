@@ -7,7 +7,7 @@ import { setCookie, getCookie } from 'hono/cookie';
 import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
-import parser from 'cron-parser';
+import { parseExpression } from 'cron-parser';
 import fs from 'fs';
 import path from 'path';
 
@@ -306,7 +306,7 @@ async function schedulerLoop() {
                 } finally {
                     // 5. Reschedule
                     try {
-                        const interval = parser.parse(job.cron_expression);
+                        const interval = parseExpression(job.cron_expression);
                         const nextRun = interval.next().toDate();
                         await query('UPDATE scheduled_jobs SET next_run_at = $1 WHERE id = $2', [nextRun, job.id]);
                         console.log(`Rescheduled Job ${job.id} to ${nextRun}`);
@@ -697,6 +697,18 @@ app.get('/', async (c) => {
       </body>
       </html>
     `);
+    
+    } catch (e: any) {
+        console.error('Dashboard Error:', e);
+        return c.html(html`
+            <div style="padding: 50px; text-align: center; font-family: sans-serif;">
+                <h1>⚠️ System Error</h1>
+                <p>Unable to load dashboard. The database might be offline or initializing.</p>
+                <p style="color: red;">${e.message}</p>
+                <a href="/">Retry</a>
+            </div>
+        `);
+    }
 });
 
 // 2. Auth Routes
@@ -775,7 +787,7 @@ app.post('/api/jobs', async (c) => {
         if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
         
         // Calculator next run
-        const interval = parser.parseExpression(cron); // Try parseExpression first, if fails we saw parse() earlier?
+        const interval = parseExpression(cron);
         // Actually, let's try to align with what we think works. 
         // If previous code was `parser.parse(cron)` and it compiled, then maybe that's right.
         // BUT standard cron-parser is `parseExpression`.
