@@ -7,6 +7,7 @@ import { setCookie, getCookie } from 'hono/cookie';
 import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
+import parser from 'cron-parser';
 
 // --- Configuration ---
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -166,9 +167,9 @@ async function runResearch(topic: string): Promise<string> {
     }
 }
 
-async function generatePostText(topic: string, research: string, tone: string = "Professional, engaging, and thought-provoking") {
+async function generatePostText(topic: string, research: string, tone: string = "Professional, engaging, and thought-provoking", modelName: string = "gemini-2.0-flash-exp", customInstructions: string = "") {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const model = genAI.getGenerativeModel({ model: modelName });
         const prompt = `
         Context: You are a top-tier LinkedIn Ghostwriter.
         Topic: ${topic}
@@ -181,6 +182,8 @@ async function generatePostText(topic: string, research: string, tone: string = 
         2. Body: Provide value, insights, or a story based on the research.
         3. Conclusion: Strong takeaway.
         4. Call to Action (CTA): Engage the audience.
+        
+        ${customInstructions ? `Custom Instructions: ${customInstructions}` : ''}
         
         Format: Clean spacing, use emojis sparingly but effectively. Do NOT include potential hashtags at the bottom yet, return them separately if possible, or just include them naturally.
         `;
@@ -245,6 +248,85 @@ async function generateImage(topic: string): Promise<string> { // Returns Base64
          return "";
     }
 }
+
+// Model for Scheduler
+async function schedulerLoop() {
+    console.log("Starting Scheduler Loop...");
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            // console.log("Checking schedule...", now.toISOString()); // Verbose log
+
+            const dueJobs = await query(`
+                SELECT * FROM scheduled_jobs 
+                WHERE status = 'active' 
+                AND next_run_at <= $1
+            `, [now]);
+
+            for (const job of dueJobs.rows) {
+                console.log(`Executing Job: ${job.name} (ID: ${job.id})`);
+                
+                try {
+                    // Logic: Get Template -> Generate -> Post -> Log -> Reschedule
+                    // 1. Get Template
+                    const templateRes = await query('SELECT * FROM prompt_templates WHERE id = $1', [job.template_id]);
+                    const template = templateRes.rows[0];
+                    if (!template) throw new Error('Template not found');
+
+                    const topic = job.topic_preset || `Auto-generated topic for ${now.toDateString()}`; // Or AI generated topic
+                    
+                    // 2. Generate
+                    const research = await runResearch(topic);
+                    const text = await generatePostText(topic, research, 'Professional', template.model_preference || 'gemini-2.0-flash-exp', template.content);
+                    
+                    // 3. Post (Auto-post for now, or draft)
+                    // For safety, let's just save as DRAFT or POST depending on preference. 
+                    // Let's assume DRAFT for safety unless specified.
+                    // Actually, let's post if LinkedIn creds exist.
+                    const credRes = await query('SELECT access_token FROM credentials WHERE service_name = $1 LIMIT 1', ['linkedin']);
+                    let postId = null;
+                    let status = 'generated_api';
+
+                    // Mock posting for scheduler safety until "Auto-Post" flag is explicit
+                    // await createLinkedInPost(...) 
+                    
+                    await query('INSERT INTO posts (topic, generated_content, status) VALUES ($1, $2, $3)', [topic, text, status]);
+                    const postRes = await query('SELECT id FROM posts ORDER BY id DESC LIMIT 1');
+                    const generatedPostId = postRes.rows[0].id;
+
+                    // 4. Log Success
+                    await query('INSERT INTO job_execution_logs (job_id, status, message, generated_post_id) VALUES ($1, $2, $3, $4)', [job.id, 'success', 'Job executed successfully', generatedPostId]);
+
+                } catch (e: any) {
+                    console.error(`Job ${job.id} Failed:`, e);
+                    // Log Failure
+                    await query('INSERT INTO job_execution_logs (job_id, status, message) VALUES ($1, $2, $3)', [job.id, 'failed', e.message]);
+                } finally {
+                    // 5. Reschedule
+                    try {
+                        const interval = parser.parseExpression(job.cron_expression);
+                        const nextRun = interval.next().toDate();
+                        await query('UPDATE scheduled_jobs SET next_run_at = $1 WHERE id = $2', [nextRun, job.id]);
+                        console.log(`Rescheduled Job ${job.id} to ${nextRun}`);
+                    } catch (parseErr) {
+                         console.error("Cron Parse Error:", parseErr);
+                         // Disable job to prevent infinite loop
+                         await query("UPDATE scheduled_jobs SET status = 'error' WHERE id = $1", [job.id]);
+                    }
+                }
+            }
+        
+        } catch (globalErr) {
+            console.error("Scheduler Error:", globalErr);
+        }
+    }, 60000); // Check every minute
+}
+
+// Start Scheduler
+schedulerLoop();
+
+// Model for Scheduler
+
 
 // --- Middleware ---
 const authMiddleware = async (c: any, next: any) => {
@@ -377,6 +459,7 @@ app.get('/', async (c) => {
     const users = await query('SELECT * FROM users');
     const creds = await query('SELECT id, service_name, account_identifier, created_at FROM credentials');
     const posts = await query('SELECT * FROM posts ORDER BY created_at DESC LIMIT 5');
+    const templates = await query('SELECT * FROM prompt_templates ORDER BY created_at DESC');
 
     return c.html(html`
       <!DOCTYPE html>
@@ -400,6 +483,10 @@ app.get('/', async (c) => {
                       <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                           <span class="hidden lg:inline font-medium">Integrations</span>
+                      </a>
+                      <a href="/google-test" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Google Lab</span>
                       </a>
                        <a href="/schedule" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -499,6 +586,46 @@ app.get('/', async (c) => {
                                 </div>
                             </div>
 
+                            <!-- Advanced Settings -->
+                            <details class="group bg-gray-50 rounded-xl border border-gray-100/50">
+                                <summary class="p-4 font-bold text-xs text-brand-purple uppercase tracking-wide cursor-pointer select-none flex items-center justify-between">
+                                    <span>⚙️ Advanced Settings</span>
+                                    <span class="group-open:rotate-180 transition">▼</span>
+                                </summary>
+                                <div class="p-4 pt-0 space-y-4">
+                                     <!-- Model Selector -->
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">AI Model</label>
+                                        <div class="relative">
+                                            <select name="model" class="w-full bg-white border border-gray-200 rounded-xl p-3 appearance-none focus:ring-2 focus:ring-brand-purple text-sm font-medium">
+                                                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (Free • Fast)</option>
+                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (High Quality)</option>
+                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Balanced)</option>
+                                            </select>
+                                            <div class="absolute right-4 top-3.5 pointer-events-none text-gray-400 text-xs">▼</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Load Template -->
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Load Template</label>
+                                        <div class="relative">
+                                            <select onchange="if(this.value) { document.getElementById('custom_instructions').value = this.value; }" class="w-full bg-white border border-gray-200 rounded-xl p-3 appearance-none focus:ring-2 focus:ring-brand-purple text-sm font-medium text-gray-500">
+                                                <option value="">-- Select a Template --</option>
+                                                ${templates.rows.map(t => html`<option value="${t.content}">${t.name}</option>`)}
+                                            </select>
+                                            <div class="absolute right-4 top-3.5 pointer-events-none text-gray-400 text-xs">▼</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Custom Instructions -->
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Custom Instructions</label>
+                                        <textarea id="custom_instructions" name="custom_instructions" rows="2" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-purple placeholder-gray-300 resize-none" placeholder="e.g. Use Australian slang, Focus on B2B SaaS..."></textarea>
+                                    </div>
+                                </div>
+                            </details>
+
                             <button type="submit" class="w-full bg-brand-purple hover:bg-opacity-90 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transform transition-all flex items-center justify-center gap-2">
                                 <span>⚡</span> Generate Preview
                             </button>
@@ -594,13 +721,35 @@ app.get('/auth/logout', (c) => {
     return c.redirect('/');
 });
 
-app.post('/admin/credentials', async (c) => {
+
+
+// --- Template & Scheduler API ---
+
+// Create Template
+app.post('/api/templates', async (c) => {
     const body = await c.req.parseBody();
-    await query(
-        'INSERT INTO credentials (service_name, account_identifier, access_token) VALUES ($1, $2, $3)',
-        [body.service_name, body.account_identifier, body.access_token]
-    );
-    return c.redirect('/');
+    await query('INSERT INTO prompt_templates (name, content, model_preference) VALUES ($1, $2, $3)', 
+        [body.name, body.content, body.model]);
+    return c.redirect('/schedule'); // Redirect back to manager
+});
+
+// Create Job
+app.post('/api/jobs', async (c) => {
+    const body = await c.req.parseBody();
+    // Parse Cron: simple presets or raw
+    // Logic: Preset (daily, weekly) -> Cron
+    let cron = body.cron_expression as string;
+    if (body.frequency === 'daily') cron = '0 9 * * *'; // 9am daily
+    if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
+    
+    // Calculator next run
+    const interval = parser.parseExpression(cron);
+    const nextRun = interval.next().toDate();
+
+    await query('INSERT INTO scheduled_jobs (name, template_id, cron_expression, next_run_at, topic_preset) VALUES ($1, $2, $3, $4, $5)', 
+        [body.name, body.template_id, cron, nextRun, body.topic]);
+        
+    return c.redirect('/schedule');
 });
 
 // 3. Generation Logic (Webhook / API)
@@ -667,9 +816,11 @@ app.post('/api/v1/generate-ui', async (c) => {
     const body = await c.req.parseBody();
     const topic = body.topic as string;
     const tone = body.tone as string;
+    const model = (body.model as string) || "gemini-2.0-flash-exp";
+    const customInstructions = body.custom_instructions as string;
 
     const research = await runResearch(topic);
-    const text = await generatePostText(topic, research, tone);
+    const text = await generatePostText(topic, research, tone, model, customInstructions);
     
     return c.html(html`
         <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100 animate-fade-in relative overflow-hidden">
@@ -679,7 +830,7 @@ app.post('/api/v1/generate-ui', async (c) => {
                 <span>✨</span> Generated Draft
             </h3>
             
-            <div class="bg-gray-50 p-6 rounded-2xl text-gray-700 whitespace-pre-wrap font-sans text-base leading-relaxed border border-gray-100 shadow-inner">${text}</div>
+            <div class="bg-gray-50 p-6 rounded-2xl text-gray-700 whitespace-pre-wrap font-sans text-base leading-relaxed border border-gray-100 shadow-inner">${raw(text)}</div>
             
             <div class="flex gap-4 mt-6">
                  <button class="bg-brand-coral hover:bg-red-400 text-white px-6 py-3 rounded-xl text-sm font-bold shadow-lg hover:shadow-xl transition transform active:scale-95">Post to LinkedIn Now</button>
@@ -693,6 +844,163 @@ app.post('/api/v1/generate-ui', async (c) => {
                 </details>
             </div>
         </div>
+    `);
+});
+
+// Schedule Page (Scheduler & Templates)
+app.get('/schedule', async (c) => {
+    // Fetch Data
+    const templates = await query('SELECT * FROM prompt_templates ORDER BY created_at DESC');
+    const logs = await query('SELECT l.*, j.name as job_name FROM job_execution_logs l JOIN scheduled_jobs j ON l.job_id = j.id ORDER BY l.executed_at DESC LIMIT 20');
+     // Allow for job query even if templates missing
+    const jobs = await query('SELECT j.*, t.name as template_name FROM scheduled_jobs j LEFT JOIN prompt_templates t ON j.template_id = t.id ORDER BY j.created_at DESC');
+
+    return c.html(html`
+      <!DOCTYPE html>
+      <html lang="en">
+      ${head}
+      <body class="flex h-screen overflow-hidden">
+          
+          <!-- Sidebar (Reused) -->
+          <aside class="w-20 lg:w-64 bg-white shadow-nav flex flex-col justify-between z-20">
+              <div>
+                  <div class="h-20 flex items-center justify-center lg:justify-start lg:px-8 border-b border-gray-100">
+                      <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-coral">L.AI</span>
+                      <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
+                  </div>
+                  <nav class="mt-8 space-y-2">
+                       <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Dashboard</span>
+                      </a>
+                      <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Integrations</span>
+                      </a>
+                      <a href="/google-test" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Google Lab</span>
+                      </a>
+                       <a href="/schedule" class="sidebar-link active flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Schedule</span>
+                      </a>
+                      <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                          <span class="hidden lg:inline font-medium">Logout</span>
+                      </a>
+                  </nav>
+              </div>
+          </aside>
+
+          <main class="flex-1 overflow-y-auto p-12 relative">
+             <div class="flex justify-between items-center mb-10">
+                 <div>
+                    <h1 class="text-3xl font-bold text-gray-800">Scheduler & Templates</h1>
+                    <p class="text-gray-500">Automate your content pipeline.</p>
+                 </div>
+             </div>
+
+             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+                <!-- Create Template Card -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-white/50">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <span>📝</span> Create Prompt Template
+                    </h2>
+                    <form action="/api/templates" method="POST" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Template Name</label>
+                            <input type="text" name="name" class="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-purple" placeholder="e.g. Viral SaaS Thread" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Model Preference</label>
+                            <select name="model" class="w-full bg-gray-50 border-none rounded-xl p-3">
+                                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
+                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Custom Instructions</label>
+                            <textarea name="content" rows="3" class="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-purple resize-none" placeholder="Enter system instructions..." required></textarea>
+                        </div>
+                        <button type="submit" class="w-full bg-brand-purple text-white py-3 rounded-xl font-bold shadow-lg hover:bg-opacity-90 transition">Save Template</button>
+                    </form>
+                </div>
+
+                <!-- Create Job Card -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-white/50">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <span>⏰</span> Schedule a Job
+                    </h2>
+                     <form action="/api/jobs" method="POST" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Job Name</label>
+                            <input type="text" name="name" class="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-purple" placeholder="e.g. Monday Motivation" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                             <div>
+                                <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Template</label>
+                                <select name="template_id" class="w-full bg-gray-50 border-none rounded-xl p-3">
+                                    ${templates.rows.map(t => html`<option value="${t.id}">${t.name}</option>`)}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Frequency</label>
+                                <select name="frequency" class="w-full bg-gray-50 border-none rounded-xl p-3">
+                                    <option value="daily">Daily (9am)</option>
+                                    <option value="weekly">Weekly (Mon 9am)</option>
+                                </select>
+                                <!-- Hidden Cron Field for advanced (future) -->
+                                <input type="hidden" name="cron_expression" value="">
+                            </div>
+                        </div>
+                        <div>
+                             <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Topic Preset</label>
+                             <input type="text" name="topic" class="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-purple" placeholder="Or leave empty for AI auto-topic">
+                        </div>
+                        <button type="submit" class="w-full bg-brand-coral text-white py-3 rounded-xl font-bold shadow-lg hover:bg-opacity-90 transition">Create Schedule</button>
+                    </form>
+                </div>
+             </div>
+
+             <!-- History & Status -->
+             <div class="bg-white rounded-3xl shadow-card border border-white/50 overflow-hidden">
+                <div class="p-8 border-b border-gray-100">
+                    <h3 class="font-bold text-lg text-gray-800">Execution History</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50/50 text-xs font-bold text-gray-400 uppercase tracking-wide">
+                                <th class="p-4 pl-8">Job</th>
+                                <th class="p-4">Status</th>
+                                <th class="p-4">Executed At</th>
+                                <th class="p-4">Message</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                             ${logs.rows.length === 0 ? html`<tr><td colspan="4" class="p-8 text-center text-gray-400 italic">No execution history yet.</td></tr>` : ''}
+                             
+                             ${logs.rows.map(l => html`
+                                <tr class="hover:bg-gray-50 transition">
+                                    <td class="p-4 pl-8 font-medium text-gray-700">${l.job_name}</td>
+                                    <td class="p-4">
+                                        <span class="px-2 py-1 rounded text-xs font-bold uppercase ${l.status === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}">
+                                            ${l.status}
+                                        </span>
+                                    </td>
+                                    <td class="p-4 text-sm text-gray-500">${new Date(l.executed_at).toLocaleString()}</td>
+                                    <td class="p-4 text-sm text-gray-500 truncate max-w-xs" title="${l.message}">${l.message}</td>
+                                </tr>
+                             `)}
+                        </tbody>
+                    </table>
+                </div>
+             </div>
+
+          </main>
+      </body>
+      </html>
     `);
 });
 

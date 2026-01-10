@@ -43,3 +43,33 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+-- Prompt Templates
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    model_preference VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Scheduled Jobs
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    template_id INTEGER REFERENCES prompt_templates(id),
+    cron_expression VARCHAR(100) NOT NULL,
+    next_run_at TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(50) DEFAULT 'active',
+    topic_preset TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Job Execution Logs
+CREATE TABLE IF NOT EXISTS job_execution_logs (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER REFERENCES scheduled_jobs(id),
+    executed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50),
+    message TEXT,
+    generated_post_id INTEGER REFERENCES posts(id)
+);
