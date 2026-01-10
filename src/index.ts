@@ -318,6 +318,19 @@ const head = html`
         .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
         .sidebar-link { transition: all 0.2s; }
         .sidebar-link:hover, .sidebar-link.active { background: linear-gradient(90deg, #F5F6FA 0%, #FFFFFF 100%); color: #8E60DD; border-right: 3px solid #8E60DD; }
+        
+        /* Tooltip CSS */
+        .tooltip { position: relative; display: inline-block; }
+        .tooltip .tooltip-text { visibility: hidden; width: 200px; background-color: #2D3748; color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 50; bottom: 125%; left: 50%; margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 0.75rem; pointer-events: none; }
+        .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+        
+        /* Visual Workflow CSS */
+        .node { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .node.active { transform: scale(1.05); box-shadow: 0 0 20px rgba(142, 96, 221, 0.4); border-color: #8E60DD; }
+        .node.w-active .node-icon { background: #8E60DD; color: white; }
+        .connection { transition: stroke 0.5s; }
+        .connection.active { stroke: #8E60DD; stroke-dasharray: 10; animation: dash 1s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -20; } }
       </style>
   </head>
 `;
@@ -417,8 +430,28 @@ app.get('/', async (c) => {
                     <h1 class="text-3xl font-bold text-gray-800">Hello, Admin 👋</h1>
                     <p class="text-gray-500">Let's create something viral today.</p>
                  </div>
-                 <div class="flex items-center gap-4">
-                     <span class="w-10 h-10 rounded-full bg-white shadow-soft flex items-center justify-center text-brand-purple font-bold">A</span>
+                 
+                 <!-- User Menu Dropdown -->
+                 <div class="relative group z-50">
+                     <button class="flex items-center gap-3 focus:outline-none">
+                         <div class="text-right hidden md:block">
+                             <p class="text-sm font-bold text-gray-700">Super Admin</p>
+                             <p class="text-xs text-brand-purple">Pro Plan</p>
+                         </div>
+                         <span class="w-12 h-12 rounded-full bg-white shadow-soft flex items-center justify-center text-brand-purple font-bold border-2 border-transparent group-hover:border-brand-purple transition overflow-hidden">
+                            <img src="https://ui-avatars.com/api/?name=Super+Admin&background=8E60DD&color=fff" alt="Admin">
+                         </span>
+                     </button>
+                     
+                     <!-- Dropdown Menu -->
+                     <div class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-card border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right">
+                         <div class="py-2">
+                             <a href="/settings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-purple">Settings</a>
+                             <a href="/google-test" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-purple">Google API Test</a>
+                             <div class="border-t border-gray-100 my-1"></div>
+                             <a href="/auth/logout" class="block px-4 py-2 text-sm text-red-500 hover:bg-red-50">Logout</a>
+                         </div>
+                     </div>
                  </div>
              </div>
 
@@ -786,13 +819,27 @@ app.get('/integrations', async (c) => {
                      </div>
                      <div class="space-y-6">
                         <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">API Secret (Header: x-api-secret)</label>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                API Secret (Header: x-api-secret)
+                                <div class="tooltip">
+                                     <span class="bg-gray-200 text-gray-500 text-[10px] w-4 h-4 rounded-full flex items-center justify-center cursor-help">i</span>
+                                     <span class="tooltip-text">Use this secret key in the 'x-api-secret' header to authenticate your webhook requests.</span>
+                                </div>
+                            </label>
                             <div class="flex items-center gap-2">
                                 <code class="bg-gray-100 p-4 rounded-xl block flex-1 font-mono text-sm text-brand-purple break-all">${API_SECRET}</code>
                             </div>
                         </div>
                         <div>
-                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Endpoint URL</label>
+                        <div>
+                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                 Endpoint URL
+                                 <div class="tooltip">
+                                     <span class="bg-gray-200 text-gray-500 text-[10px] w-4 h-4 rounded-full flex items-center justify-center cursor-help">i</span>
+                                     <span class="tooltip-text">Send POST requests to this URL with your JSON payload.</span>
+                                </div>
+                             </label>
                              <div class="bg-gray-50 p-4 rounded-xl text-sm text-gray-600 font-mono select-all break-all">https://your-domain.com/api/v1/generate</div>
                         </div>
                         <button onclick="document.getElementById('api-modal').close()" class="w-full bg-gray-100 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-200 transition">Done</button>
@@ -801,6 +848,192 @@ app.get('/integrations', async (c) => {
              </dialog>
 
           </main>
+      </body>
+      </html>
+    `);
+});
+
+// 6. Google Integration Test Page & Visual Workflow
+app.get('/google-test', async (c) => {
+    return c.html(html`
+      <!DOCTYPE html>
+      <html lang="en">
+      ${head}
+      <body class="flex h-screen overflow-hidden bg-gray-50">
+          
+          <!-- Quick Nav (Back) -->
+          <div class="absolute top-6 left-6 z-50">
+              <a href="/" class="bg-white p-3 rounded-full shadow-soft text-gray-500 hover:text-brand-purple transition block">
+                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+              </a>
+          </div>
+
+          <main class="flex-1 overflow-y-auto p-12 flex flex-col items-center justify-center min-h-screen">
+             
+             <div class="max-w-4xl w-full space-y-8">
+                 <div class="text-center">
+                     <h1 class="text-3xl font-black text-gray-800 mb-2">Google Integration Lab 🧪</h1>
+                     <p class="text-gray-500">Test API Limits and Visualize the Autonomous Workflow</p>
+                 </div>
+
+                 <!-- Controls -->
+                 <div class="bg-white p-6 rounded-3xl shadow-card flex items-center justify-between gap-6 z-10 relative">
+                     <div class="flex-1">
+                         <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-2">
+                             API Key Status
+                             <div class="tooltip">
+                                 <span class="bg-brand-purple/10 text-brand-purple text-[10px] w-4 h-4 rounded-full flex items-center justify-center cursor-help">i</span>
+                                 <span class="tooltip-text">We verify your key validity before running the workflow.</span>
+                             </div>
+                         </label>
+                         <div class="flex items-center gap-2">
+                             <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                             <span class="font-mono text-sm text-gray-600">Active (Masked)</span>
+                         </div>
+                     </div>
+                     <div class="flex gap-4">
+                         <button onclick="startSimulation('429')" class="px-6 py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition">Simulate 429</button>
+                         <button onclick="startSimulation('success')" class="px-6 py-3 bg-brand-purple text-white font-bold rounded-xl hover:bg-opacity-90 shadow-lg transition">Test Real Request</button>
+                     </div>
+                 </div>
+
+                 <!-- Visual Workflow Canvas -->
+                 <div class="relative bg-white rounded-3xl shadow-card h-96 w-full overflow-hidden border border-gray-100 p-8 flex items-center justify-center select-none" id="workflow-canvas">
+                     
+                     <!-- SVG Connectors Layer -->
+                     <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;">
+                         <!-- Start -> Request -->
+                         <path id="conn-1" d="M150 192 L 300 192" stroke="#E2E8F0" stroke-width="4" fill="none" class="connection" />
+                         <!-- Request -> Check -->
+                         <path id="conn-2" d="M420 192 L 550 192" stroke="#E2E8F0" stroke-width="4" fill="none" class="connection" />
+                         
+                         <!-- Branching -->
+                         <!-- Check -> Success -->
+                         <path id="conn-success" d="M670 192 L 800 120" stroke="#E2E8F0" stroke-width="4" fill="none" class="connection" />
+                         <!-- Check -> 429 -->
+                         <path id="conn-429" d="M670 192 L 800 264" stroke="#E2E8F0" stroke-width="4" fill="none" class="connection" />
+                     </svg>
+
+                     <!-- Nodes -->
+                     <!-- 1. Start -->
+                     <div id="node-start" class="node absolute left-10 top-1/2 -translate-y-1/2 bg-white border-2 border-gray-100 p-4 rounded-2xl w-32 flex flex-col items-center gap-2 z-10">
+                         <div class="node-icon w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-colors">🚀</div>
+                         <span class="text-xs font-bold text-gray-500">Start</span>
+                     </div>
+
+                     <!-- 2. API Request -->
+                     <div id="node-req" class="node absolute left-[300px] top-1/2 -translate-y-1/2 bg-white border-2 border-gray-100 p-4 rounded-2xl w-32 flex flex-col items-center gap-2 z-10">
+                         <div class="node-icon w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-colors">⚡</div>
+                         <span class="text-xs font-bold text-gray-500">Generate</span>
+                     </div>
+
+                     <!-- 3. Rate Limit Check -->
+                     <div id="node-check" class="node absolute left-[550px] top-1/2 -translate-y-1/2 bg-white border-2 border-gray-100 p-4 rounded-2xl w-32 flex flex-col items-center gap-2 z-10">
+                         <div class="node-icon w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-colors">🔍</div>
+                         <span class="text-xs font-bold text-gray-500">Quota Check</span>
+                     </div>
+
+                     <!-- 4. Success Output -->
+                     <div id="node-success" class="node absolute right-10 top-[20%] bg-white border-2 border-gray-100 p-4 rounded-2xl w-32 flex flex-col items-center gap-2 z-10 opacity-50">
+                         <div class="node-icon w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-colors">✅</div>
+                         <span class="text-xs font-bold text-gray-500">Complete</span>
+                     </div>
+
+                     <!-- 5. 429/Wait Output -->
+                     <div id="node-429" class="node absolute right-10 top-[60%] bg-white border-2 border-gray-100 p-4 rounded-2xl w-32 flex flex-col items-center gap-2 z-10 opacity-50">
+                         <div class="node-icon w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-colors">⏳</div>
+                         <span class="text-xs font-bold text-gray-500" id="timer-text">Wait 60s</span>
+                     </div>
+                 </div>
+
+                 <!-- Log Console -->
+                 <div class="bg-gray-900 rounded-2xl p-6 font-mono text-xs text-green-400 h-40 overflow-y-auto" id="console-log">
+                     <p class="opacity-50">> System ready.</p>
+                 </div>
+
+             </div>
+          </main>
+
+          <script>
+            // Visualizer Logic
+            const log = (msg) => {
+                const c = document.getElementById('console-log');
+                const p = document.createElement('p');
+                p.innerText = '> ' + msg;
+                c.appendChild(p);
+                c.scrollTop = c.scrollHeight;
+            };
+
+            const activateNode = (id) => {
+                // Reset all
+                document.querySelectorAll('.node').forEach(n => {
+                    n.classList.remove('active', 'w-active');
+                });
+                const el = document.getElementById('node-' + id);
+                if(el) {
+                    el.classList.add('active', 'w-active');
+                    el.style.opacity = '1';
+                }
+            };
+
+            const activateConn = (id) => {
+                 document.querySelectorAll('.connection').forEach(c => c.classList.remove('active'));
+                 if(id) document.getElementById(id).classList.add('active');
+            };
+
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+            async function startSimulation(type) {
+                log('Starting workflow simulation...');
+                
+                // Step 1: Start
+                activateNode('start');
+                await sleep(500);
+                
+                // Step 2: Request
+                activateConn('conn-1');
+                await sleep(1000);
+                activateNode('req');
+                log('Sending request to Google Gemini API...');
+                
+                // Step 3: Check
+                activateConn('conn-2');
+                await sleep(1000);
+                activateNode('check');
+                log('Checking response status...');
+                await sleep(800);
+
+                if (type === '429') {
+                    // Fail path
+                    log('Error: 429 Quota Exceeded detected.');
+                    activateConn('conn-429');
+                    await sleep(500);
+                    activateNode('429');
+                    
+                    // Countdown
+                    let seconds = 5;
+                    const timerText = document.getElementById('timer-text');
+                    while(seconds > 0) {
+                        timerText.innerText = 'Retrying in ' + seconds + 's';
+                        log('Rate limit active. Waiting ' + seconds + 's...');
+                        await sleep(1000);
+                        seconds--;
+                    }
+                    timerText.innerText = 'Retrying...';
+                    log('Cooldown complete. Retrying request.');
+                    
+                    // Loop back to start (simple visualization)
+                    startSimulation('success');
+                } else {
+                    // Success path
+                    log('Response: 200 OK. Content generated.');
+                    activateConn('conn-success');
+                    await sleep(500);
+                    activateNode('success');
+                    log('Workflow complete.');
+                }
+            }
+          </script>
       </body>
       </html>
     `);
