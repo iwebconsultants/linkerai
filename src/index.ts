@@ -189,6 +189,30 @@ async function generatePostText(topic: string, research: string, tone: string = 
         return result.response.text();
     } catch (e: any) {
         console.error("Generate Post Error:", e);
+        
+        const isQuotaError = e.message?.includes('429') || e.message?.includes('Quota exceeded') || e.status === 429;
+        
+        if (isQuotaError) {
+             return `
+                <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                             <svg class="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                             </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-bold text-red-800">AI Quota Exceeded</h3>
+                            <div class="mt-2 text-sm text-red-700">
+                                <p>The free tier usage limit for Gemini AI has been reached for now. Please wait a minute before trying again.</p>
+                                <p class="mt-2 text-xs opacity-75">Error Code: 429 Too Many Requests</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
         return `⚠️ Could not generate post content due to AI provider error: ${e.message || 'Unknown error'}. Please try again later.`;
     }
 }
@@ -495,22 +519,12 @@ app.get('/', async (c) => {
                              `)}
                         </div>
 
-                        <!-- Add Account (Mini) -->
-                        <div class="mt-6 pt-6 border-t border-gray-100">
-                             <details class="group">
-                                <summary class="flex items-center justify-between cursor-pointer text-sm font-bold text-gray-500 hover:text-brand-purple transition">
-                                    <span>Connect Account</span>
-                                    <span class="text-xl leading-none">+</span>
-                                </summary>
-                                <form action="/admin/credentials" method="POST" class="mt-4 space-y-3">
-                                    <select name="service_name" class="w-full bg-gray-50 rounded-lg p-3 text-xs font-medium">
-                                        <option value="linkedin">LinkedIn</option>
-                                    </select>
-                                    <input type="text" name="account_identifier" placeholder="Email / ID" class="w-full bg-gray-50 rounded-lg p-3 text-xs">
-                                    <input type="password" name="access_token" placeholder="Paste Access Token" class="w-full bg-gray-50 rounded-lg p-3 text-xs">
-                                    <button class="w-full bg-brand-dark text-white py-3 rounded-lg text-xs font-bold hover:bg-black transition">Safe Credentials</button>
-                                </form>
-                             </details>
+                        <!-- Add Account (Mini) - REMOVED, moved to /integrations -->
+                        <div class="mt-6 pt-6 border-t border-gray-100/50">
+                             <a href="/integrations" class="flex items-center justify-between text-sm font-bold text-gray-400 hover:text-brand-purple transition cursor-pointer group">
+                                <span>Manage Integrations</span>
+                                <span class="group-hover:translate-x-1 transition">→</span>
+                             </a>
                         </div>
                      </div>
                 </div>
@@ -656,7 +670,7 @@ app.get('/integrations', async (c) => {
     
     // Fetch existing
     const creds = await query('SELECT id, service_name, account_identifier, created_at FROM credentials');
-    const settings = await query('SELECT * FROM settings');
+    const linkedInCred = creds.rows.find((c: any) => c.service_name === 'linkedin');
 
     return c.html(html`
       <!DOCTYPE html>
@@ -672,7 +686,7 @@ app.get('/integrations', async (c) => {
                       <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
                   </div>
                   <nav class="mt-8 space-y-2">
-                      <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                       <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
                           <span class="hidden lg:inline font-medium">Dashboard</span>
                       </a>
@@ -693,66 +707,99 @@ app.get('/integrations', async (c) => {
           </aside>
 
           <main class="flex-1 overflow-y-auto p-12 relative">
-             <h1 class="text-3xl font-bold text-gray-800 mb-2">Integrations & Settings</h1>
-             <p class="text-gray-500 mb-10">Manage your connected accounts and API configurations.</p>
+             <h1 class="text-3xl font-bold text-gray-800 mb-2">Integrations</h1>
+             <p class="text-gray-500 mb-10">Manage your connected services.</p>
              
              <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Connect LinkedIn -->
-                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100">
-                    <h2 class="text-xl font-bold mb-6 text-gray-700">Add LinkedIn Account</h2>
-                    <form action="/admin/credentials" method="POST" class="space-y-4">
-                        <input type="hidden" name="service_name" value="linkedin">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Email / Identifier</label>
-                            <input type="text" name="account_identifier" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" required>
+                <!-- LinkedIn Card -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100 flex flex-col justify-between h-64">
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                             <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                                <span class="text-blue-600 font-bold text-xl">in</span>
+                             </div>
+                             ${linkedInCred ? html`<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Combined</span>` : html`<span class="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Not Connected</span>`}
                         </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Access Token</label>
-                            <input type="password" name="access_token" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" required>
-                            <p class="text-xs text-gray-400 mt-2">Get this from the LinkedIn Developer Portal.</p>
-                        </div>
-                        <button class="w-full bg-brand-dark text-white py-4 rounded-xl font-bold hover:bg-black transition">Safe Credentials</button>
-                    </form>
+                        <h2 class="text-xl font-bold text-gray-800">LinkedIn</h2>
+                        <p class="text-gray-500 text-sm mt-2">Connect your personal profile or company page to auto-publish content.</p>
+                    </div>
+                    
+                    <div>
+                        ${linkedInCred ? html`
+                             <div class="flex gap-2">
+                                <button class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-3 rounded-xl font-bold transition cursor-not-allowed opacity-50">Connected as ${linkedInCred.account_identifier}</button>
+                             </div>
+                        ` : html`
+                            <button onclick="document.getElementById('linkedin-modal').showModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition transform active:scale-95">Connect LinkedIn</button>
+                        `}
+                    </div>
                 </div>
 
-                <!-- Webhook / API Config -->
-                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100">
-                     <h2 class="text-xl font-bold mb-6 text-gray-700">API Configuration</h2>
-                     <div class="space-y-6">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">API Secret (for Webhooks)</label>
-                            <div class="flex items-center gap-2">
-                                <code class="bg-gray-100 p-4 rounded-xl block flex-1 font-mono text-sm text-brand-purple">${API_SECRET}</code>
-                            </div>
-                             <p class="text-xs text-gray-400 mt-2">Use in header: <code>x-api-secret</code></p>
+                <!-- API Card -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100 flex flex-col justify-between h-64">
+                     <div>
+                        <div class="flex items-center justify-between mb-4">
+                             <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
+                                <span class="text-brand-purple font-bold text-xl">API</span>
+                             </div>
+                             <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Active</span>
                         </div>
-                        <div>
-                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Endpoint URL</label>
-                             <div class="bg-gray-50 p-4 rounded-xl text-sm text-gray-600 font-mono select-all">https://linkerai.iotwise.au/api/v1/generate</div>
-                        </div>
-                     </div>
-                </div>
-
-                <!-- Existing Accounts -->
-                <div class="md:col-span-2 bg-white p-8 rounded-3xl shadow-card border border-gray-100">
-                    <h2 class="text-xl font-bold mb-6 text-gray-700">Connected Accounts</h2>
-                    <div class="space-y-4">
-                        ${creds.rows.length === 0 ? '<p class="text-gray-400 italic">No accounts connected yet.</p>' : ''}
-                        ${creds.rows.map(c => html`
-                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">L</div>
-                                    <div>
-                                        <p class="font-bold text-gray-800">${c.service_name}</p>
-                                        <p class="text-sm text-gray-500">${c.account_identifier}</p>
-                                    </div>
-                                </div>
-                                <span class="text-xs font-mono text-gray-400">ID: ${c.id}</span>
-                            </div>
-                        `)}
+                        <h2 class="text-xl font-bold text-gray-800">Webhook API</h2>
+                        <p class="text-gray-500 text-sm mt-2">Generate content programmatically via n8n, Zapier, or your own scripts.</p>
+                    </div>
+                    <div>
+                        <button onclick="document.getElementById('api-modal').showModal()" class="w-full bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold shadow-lg transition">View API Keys</button>
                     </div>
                 </div>
              </div>
+
+             <!-- Modals -->
+             <!-- LinkedIn Modal -->
+             <dialog id="linkedin-modal" class="backdrop:bg-gray-900/50 p-0 rounded-3xl shadow-2xl w-full max-w-md">
+                 <div class="bg-white p-8">
+                     <div class="flex justify-between items-center mb-6">
+                         <h3 class="text-xl font-bold text-gray-800">Connect LinkedIn</h3>
+                         <button onclick="document.getElementById('linkedin-modal').close()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                     </div>
+                     <form action="/admin/credentials" method="POST" class="space-y-4">
+                        <input type="hidden" name="service_name" value="linkedin">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Email / Identifier</label>
+                            <input type="text" name="account_identifier" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" placeholder="you@company.com" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Access Token</label>
+                            <input type="password" name="access_token" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" placeholder="li_at_..." required>
+                            <p class="text-xs text-brand-purple hover:underline cursor-pointer mt-2">How do I get this?</p>
+                        </div>
+                        <button class="w-full bg-brand-purple text-white py-4 rounded-xl font-bold hover:shadow-lg transition">Save Credentials</button>
+                    </form>
+                 </div>
+             </dialog>
+
+             <!-- API Modal -->
+             <dialog id="api-modal" class="backdrop:bg-gray-900/50 p-0 rounded-3xl shadow-2xl w-full max-w-md">
+                  <div class="bg-white p-8">
+                     <div class="flex justify-between items-center mb-6">
+                         <h3 class="text-xl font-bold text-gray-800">API Configuration</h3>
+                         <button onclick="document.getElementById('api-modal').close()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                     </div>
+                     <div class="space-y-6">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">API Secret (Header: x-api-secret)</label>
+                            <div class="flex items-center gap-2">
+                                <code class="bg-gray-100 p-4 rounded-xl block flex-1 font-mono text-sm text-brand-purple break-all">${API_SECRET}</code>
+                            </div>
+                        </div>
+                        <div>
+                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Endpoint URL</label>
+                             <div class="bg-gray-50 p-4 rounded-xl text-sm text-gray-600 font-mono select-all break-all">https://your-domain.com/api/v1/generate</div>
+                        </div>
+                        <button onclick="document.getElementById('api-modal').close()" class="w-full bg-gray-100 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-200 transition">Done</button>
+                     </div>
+                  </div>
+             </dialog>
+
           </main>
       </body>
       </html>
@@ -773,7 +820,7 @@ app.get('/schedule', (c) => {
                       <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
                   </div>
                   <nav class="mt-8 space-y-2">
-                      <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Dashboard</a>
+                       <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Dashboard</a>
                       <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Integrations</a>
                       <a href="/schedule" class="sidebar-link active flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Schedule</a>
                       <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">Logout</a>
