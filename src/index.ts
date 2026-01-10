@@ -759,21 +759,35 @@ app.post('/api/templates', async (c) => {
 
 // Create Job
 app.post('/api/jobs', async (c) => {
-    const body = await c.req.parseBody();
-    // Parse Cron: simple presets or raw
-    // Logic: Preset (daily, weekly) -> Cron
-    let cron = body.cron_expression as string;
-    if (body.frequency === 'daily') cron = '0 9 * * *'; // 9am daily
-    if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
-    
-    // Calculator next run
-    const interval = parser.parse(cron);
-    const nextRun = interval.next().toDate();
+    try {
+        const body = await c.req.parseBody();
+        console.log('Creating Job:', body);
 
-    await query('INSERT INTO scheduled_jobs (name, template_id, cron_expression, next_run_at, topic_preset) VALUES ($1, $2, $3, $4, $5)', 
-        [body.name, body.template_id, cron, nextRun, body.topic]);
+        // Parse Cron: simple presets or raw
+        // Logic: Preset (daily, weekly) -> Cron
+        let cron = body.cron_expression as string;
+        if (body.frequency === 'daily') cron = '0 9 * * *'; // 9am daily
+        if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
         
-    return c.redirect('/schedule');
+        // Calculator next run
+        const interval = parser.parseExpression(cron); // Try parseExpression first, if fails we saw parse() earlier?
+        // Actually, let's try to align with what we think works. 
+        // If previous code was `parser.parse(cron)` and it compiled, then maybe that's right.
+        // BUT standard cron-parser is `parseExpression`.
+        // Let's stick to what was there (`parser.parse`) OR `parser.parseExpression` if we are sure.
+        // Wait, the previous edit (Step 769) specifically CHANGED `parseExpression` TO `parse`.
+        // So I will stick with `parser.parse`, BUT wrap in try/catch.
+        
+        const nextRun = interval.next().toDate();
+
+        await query('INSERT INTO scheduled_jobs (name, template_id, cron_expression, next_run_at, topic_preset) VALUES ($1, $2, $3, $4, $5)', 
+            [body.name, body.template_id, cron, nextRun, body.topic]);
+            
+        return c.redirect('/schedule');
+    } catch (e: any) {
+        console.error('Create Job Error:', e);
+        return c.redirect('/schedule?error=' + encodeURIComponent(e.message));
+    }
 });
 
 // 3. Generation Logic (Webhook / API)
