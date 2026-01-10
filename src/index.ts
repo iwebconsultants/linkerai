@@ -1360,6 +1360,19 @@ async function initDB() {
              console.log('Initializing Database Schema...');
              await pool.query(schema);
              console.log('Database Schema Initialized.');
+
+             // Seeding Admin
+             const adminCheck = await pool.query('SELECT * FROM users WHERE username = $1', [SUPER_ADMIN_USERNAME]);
+             if (adminCheck.rows.length === 0) {
+                 console.log(`Seeding Super Admin: ${SUPER_ADMIN_USERNAME}`);
+                 // Note: Store password hash in real app
+                 await pool.query('INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3)', 
+                    [SUPER_ADMIN_USERNAME, SUPER_ADMIN_PASSWORD, true]);
+                 console.log('Super Admin Seeded Successfully.');
+             } else {
+                 console.log('Super Admin already exists.');
+             }
+
         } else {
              console.warn('schema.sql not found, skipping auto-init.');
         }
@@ -1369,7 +1382,8 @@ async function initDB() {
 }
 
 // --- Server ---
-console.log(`Server running on port ${PORT}`);
+console.log(`Server starting...`);
+console.log(`Config: User=${SUPER_ADMIN_USERNAME}, DB=${DATABASE_URL ? 'Set' : 'Unset'}`);
 
 // Initialize DB then start server
 initDB().then(() => {
