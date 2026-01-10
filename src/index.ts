@@ -1348,43 +1348,31 @@ app.get('/google-test', async (c) => {
 });
 
 // 6. Schedule Page (Placeholder)
-app.get('/schedule', (c) => {
-     return c.html(html`
-      <!DOCTYPE html>
-      <html lang="en">
-      ${head}
-      <body class="flex h-screen overflow-hidden">
-          <aside class="w-20 lg:w-64 bg-white shadow-nav flex flex-col justify-between z-20">
-               <div>
-                  <div class="h-20 flex items-center justify-center lg:justify-start lg:px-8 border-b border-gray-100">
-                      <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-coral">L.AI</span>
-                      <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
-                  </div>
-                  <nav class="mt-8 space-y-2">
-                       <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Dashboard</a>
-                      <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Integrations</a>
-                      <a href="/schedule" class="sidebar-link active flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Schedule</a>
-                      <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">Logout</a>
-                  </nav>
-              </div>
-          </aside>
-          <main class="flex-1 p-12 bg-white flex flex-col items-center justify-center text-center">
-              <div class="bg-gray-50 p-12 rounded-full mb-6">
-                  <span class="text-6xl">🗓️</span>
-              </div>
-              <h1 class="text-3xl font-bold text-gray-800 mb-2">Schedule Coming Soon</h1>
-              <p class="text-gray-500 max-w-md mx-auto">This feature is currently under development. Soon you'll be able to schedule posts for auto-publishing.</p>
-              <a href="/" class="mt-8 inline-block bg-brand-purple text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">Back to Dashboard</a>
-          </main>
-      </body>
-      </html>
-     `);
-});
 
+// --- Database Initialization ---
+async function initDB() {
+    try {
+        const schemaPath = path.join(process.cwd(), 'schema.sql');
+        if (fs.existsSync(schemaPath)) {
+             const schema = fs.readFileSync(schemaPath, 'utf8');
+             console.log('Initializing Database Schema...');
+             await pool.query(schema);
+             console.log('Database Schema Initialized.');
+        } else {
+             console.warn('schema.sql not found, skipping auto-init.');
+        }
+    } catch (e) {
+        console.error('Database Initialization Failed:', e);
+    }
+}
 
 // --- Server ---
 console.log(`Server running on port ${PORT}`);
-serve({
-  fetch: app.fetch,
-  port: PORT
+
+// Initialize DB then start server
+initDB().then(() => {
+    serve({
+      fetch: app.fetch,
+      port: PORT
+    });
 });
