@@ -723,6 +723,28 @@ app.get('/auth/logout', (c) => {
     return c.redirect('/');
 });
 
+// Save Credentials
+app.post('/admin/credentials', async (c) => {
+    try {
+        const body = await c.req.parseBody();
+        const service = body.service_name as string;
+        const identifier = body.account_identifier as string;
+        const token = body.access_token as string;
+
+        // Check if exists
+        const check = await pool.query('SELECT * FROM credentials WHERE service_name = $1', [service]);
+        if (check.rows.length > 0) {
+            await pool.query('UPDATE credentials SET account_identifier = $1, access_token = $2 WHERE service_name = $3', [identifier, token, service]);
+        } else {
+            await pool.query('INSERT INTO credentials (service_name, account_identifier, access_token) VALUES ($1, $2, $3)', [service, identifier, token]);
+        }
+        return c.redirect('/integrations');
+    } catch (e: any) {
+        console.error('Save Credentials Error:', e);
+        return c.redirect('/integrations?error=' + encodeURIComponent(e.message));
+    }
+});
+
 
 
 // --- Template & Scheduler API ---
