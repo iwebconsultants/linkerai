@@ -751,10 +751,15 @@ app.post('/admin/credentials', async (c) => {
 
 // Create Template
 app.post('/api/templates', async (c) => {
-    const body = await c.req.parseBody();
-    await query('INSERT INTO prompt_templates (name, content, model_preference) VALUES ($1, $2, $3)', 
-        [body.name, body.content, body.model]);
-    return c.redirect('/schedule'); // Redirect back to manager
+    try {
+        const body = await c.req.parseBody();
+        await query('INSERT INTO prompt_templates (name, content, model_preference) VALUES ($1, $2, $3)', 
+            [body.name, body.content, body.model]);
+        return c.redirect('/schedule'); // Redirect back to manager
+    } catch (e: any) {
+        console.error('Create Template Error:', e);
+        return c.redirect('/schedule?error=' + encodeURIComponent(e.message));
+    }
 });
 
 // Create Job
