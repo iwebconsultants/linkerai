@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
 import { setCookie, getCookie } from 'hono/cookie';
@@ -24,16 +24,28 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-
-
 // --- AI Setup ---
-// We initialize this per request if we support multiple keys, but for now global or first cred
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
 
 // --- App Setup ---
 const app = new Hono();
 app.use('*', logger());
 app.use('*', cors());
+
+// --- Security Middleware ---
+const secureHeaders = async (c: any, next: any) => {
+    await next();
+    c.res.headers.set('X-DNS-Prefetch-Control', 'on');
+    c.res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+    c.res.headers.set('X-Content-Type-Options', 'nosniff');
+    c.res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+    c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // Basic CSP
+    const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+    c.res.headers.set('Content-Security-Policy', `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.linkedin.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;`);
+};
+app.use('*', secureHeaders);
+
 
 // --- Types ---
 interface GenerateRequest {
@@ -240,58 +252,58 @@ const authMiddleware = async (c: any, next: any) => {
     await next();
 };
 
+// --- Shared Assets ---
+const tailwindConfig = `
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'sans-serif'] },
+        colors: {
+          brand: {
+            purple: '#8E60DD',
+            coral: '#FC6969',
+            dark: '#202020',
+            light: '#F5F6FA',
+            white: '#FFFFFF',
+            gray: '#A0AEC0'
+          }
+        },
+        boxShadow: {
+            'soft': '0 4px 20px 0 rgba(0,0,0,0.05)',
+            'card': '0 10px 30px -5px rgba(0, 0, 0, 0.05)',
+            'nav': '4px 0 20px 0 rgba(0,0,0,0.02)'
+        }
+      }
+    }
+  }
+`;
+
+const head = html`
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>LinkerAI | Vivid Dashboard</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      <script>
+        ${raw(tailwindConfig)}
+      </script>
+      <style>
+        body { font-family: 'Inter', sans-serif; background-color: #F5F6FA; color: #2D3748; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .sidebar-link { transition: all 0.2s; }
+        .sidebar-link:hover, .sidebar-link.active { background: linear-gradient(90deg, #F5F6FA 0%, #FFFFFF 100%); color: #8E60DD; border-right: 3px solid #8E60DD; }
+      </style>
+  </head>
+`;
+
 // --- Routes ---
 
 // 1. Dashboard (Login + View)
 app.get('/', async (c) => {
     const cookie = getCookie(c, 'auth');
     const isLoggedIn = cookie === 'true'; // Simplified
-    
-    // --- Vivid Design Config ---
-    const tailwindConfig = `
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ['Inter', 'sans-serif'] },
-            colors: {
-              brand: {
-                purple: '#8E60DD',
-                coral: '#FC6969',
-                dark: '#202020',
-                light: '#F5F6FA',
-                white: '#FFFFFF',
-                gray: '#A0AEC0'
-              }
-            },
-            boxShadow: {
-              'soft': '0 4px 20px 0 rgba(0,0,0,0.05)',
-              'card': '0 10px 30px -5px rgba(0, 0, 0, 0.05)',
-              'nav': '4px 0 20px 0 rgba(0,0,0,0.02)'
-            }
-          }
-        }
-      }
-    `;
-
-    const head = html`
-      <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>LinkerAI | Vivid Dashboard</title>
-          <script src="https://cdn.tailwindcss.com"></script>
-          <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-          <script>
-            ${html`${tailwindConfig}`}
-          </script>
-          <style>
-            body { font-family: 'Inter', sans-serif; background-color: #F5F6FA; color: #2D3748; }
-            .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
-            .sidebar-link { transition: all 0.2s; }
-            .sidebar-link:hover, .sidebar-link.active { background: linear-gradient(90deg, #F5F6FA 0%, #FFFFFF 100%); color: #8E60DD; border-right: 3px solid #8E60DD; }
-          </style>
-      </head>
-    `;
     
     if (!isLoggedIn) {
         return c.html(html`
@@ -304,16 +316,19 @@ app.get('/', async (c) => {
                     <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-coral">LinkerAI</h1>
                     <p class="text-gray-400 mt-2 text-sm">Autonomous Content Engine</p>
                 </div>
+                <!-- Login Form with CSS Fix: Ensure gradients work by correctly injecting config -->
                 <form action="/auth/login" method="POST" class="space-y-6">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Username</label>
-                        <input type="text" name="username" class="w-full p-4 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-brand-purple transition" placeholder="admin">
+                        <input type="text" name="username" class="w-full p-4 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-brand-purple transition" placeholder="admin" value="info@iwebx.com.au">
                     </div>
                      <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Password</label>
                         <input type="password" name="password" class="w-full p-4 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-brand-purple transition" placeholder="••••••••">
                     </div>
                     <button type="submit" class="w-full bg-gradient-to-r from-brand-purple to-brand-coral text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform active:scale-95 transition">Login to Dashboard</button>
+                    <!-- Fallback if gradient fails: add a solid color via style -->
+                    <p class="text-center text-xs text-gray-300 mt-4">If button is invisible, Tailwind config is likely broken.</p>
                 </form>
             </div>
         </body>
@@ -345,13 +360,13 @@ app.get('/', async (c) => {
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
                           <span class="hidden lg:inline font-medium">Dashboard</span>
                       </a>
-                      <a href="#" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                      <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Integrations</span>
+                      </a>
+                       <a href="/schedule" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                           <span class="hidden lg:inline font-medium">Schedule</span>
-                      </a>
-                       <a href="#" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
-                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                          <span class="hidden lg:inline font-medium">Accounts</span>
                       </a>
                       <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">
                           <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
@@ -370,6 +385,7 @@ app.get('/', async (c) => {
 
           <!-- Main Content -->
           <main class="flex-1 overflow-y-auto p-6 lg:p-12 relative">
+
              <div class="absolute top-0 right-0 p-32 opacity-10 bg-gradient-to-bl from-brand-purple to-transparent rounded-full blur-3xl pointer-events-none"></div>
 
              <div class="flex justify-between items-center mb-10">
@@ -632,6 +648,151 @@ app.post('/api/v1/generate-ui', async (c) => {
         </div>
     `);
 });
+
+// 5. Integrations Page
+app.get('/integrations', async (c) => {
+    // Re-use Head/Sidebar for now (ideally separate components)
+    // For specific task, just render the content area
+    
+    // Fetch existing
+    const creds = await query('SELECT id, service_name, account_identifier, created_at FROM credentials');
+    const settings = await query('SELECT * FROM settings');
+
+    return c.html(html`
+      <!DOCTYPE html>
+      <html lang="en">
+      ${head}
+      <body class="flex h-screen overflow-hidden">
+          
+          <!-- Sidebar (Duplicated for speed, ideally component) -->
+          <aside class="w-20 lg:w-64 bg-white shadow-nav flex flex-col justify-between z-20">
+              <div>
+                  <div class="h-20 flex items-center justify-center lg:justify-start lg:px-8 border-b border-gray-100">
+                      <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-coral">L.AI</span>
+                      <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
+                  </div>
+                  <nav class="mt-8 space-y-2">
+                      <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Dashboard</span>
+                      </a>
+                      <a href="/integrations" class="sidebar-link active flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Integrations</span>
+                      </a>
+                       <a href="/schedule" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                          <span class="hidden lg:inline font-medium">Schedule</span>
+                      </a>
+                       <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">
+                          <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                          <span class="hidden lg:inline font-medium">Logout</span>
+                      </a>
+                  </nav>
+              </div>
+          </aside>
+
+          <main class="flex-1 overflow-y-auto p-12 relative">
+             <h1 class="text-3xl font-bold text-gray-800 mb-2">Integrations & Settings</h1>
+             <p class="text-gray-500 mb-10">Manage your connected accounts and API configurations.</p>
+             
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Connect LinkedIn -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100">
+                    <h2 class="text-xl font-bold mb-6 text-gray-700">Add LinkedIn Account</h2>
+                    <form action="/admin/credentials" method="POST" class="space-y-4">
+                        <input type="hidden" name="service_name" value="linkedin">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Email / Identifier</label>
+                            <input type="text" name="account_identifier" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Access Token</label>
+                            <input type="password" name="access_token" class="w-full bg-gray-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-brand-purple" required>
+                            <p class="text-xs text-gray-400 mt-2">Get this from the LinkedIn Developer Portal.</p>
+                        </div>
+                        <button class="w-full bg-brand-dark text-white py-4 rounded-xl font-bold hover:bg-black transition">Safe Credentials</button>
+                    </form>
+                </div>
+
+                <!-- Webhook / API Config -->
+                <div class="bg-white p-8 rounded-3xl shadow-card border border-gray-100">
+                     <h2 class="text-xl font-bold mb-6 text-gray-700">API Configuration</h2>
+                     <div class="space-y-6">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">API Secret (for Webhooks)</label>
+                            <div class="flex items-center gap-2">
+                                <code class="bg-gray-100 p-4 rounded-xl block flex-1 font-mono text-sm text-brand-purple">${API_SECRET}</code>
+                            </div>
+                             <p class="text-xs text-gray-400 mt-2">Use in header: <code>x-api-secret</code></p>
+                        </div>
+                        <div>
+                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Endpoint URL</label>
+                             <div class="bg-gray-50 p-4 rounded-xl text-sm text-gray-600 font-mono select-all">https://linkerai.iotwise.au/api/v1/generate</div>
+                        </div>
+                     </div>
+                </div>
+
+                <!-- Existing Accounts -->
+                <div class="md:col-span-2 bg-white p-8 rounded-3xl shadow-card border border-gray-100">
+                    <h2 class="text-xl font-bold mb-6 text-gray-700">Connected Accounts</h2>
+                    <div class="space-y-4">
+                        ${creds.rows.length === 0 ? '<p class="text-gray-400 italic">No accounts connected yet.</p>' : ''}
+                        ${creds.rows.map(c => html`
+                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">L</div>
+                                    <div>
+                                        <p class="font-bold text-gray-800">${c.service_name}</p>
+                                        <p class="text-sm text-gray-500">${c.account_identifier}</p>
+                                    </div>
+                                </div>
+                                <span class="text-xs font-mono text-gray-400">ID: ${c.id}</span>
+                            </div>
+                        `)}
+                    </div>
+                </div>
+             </div>
+          </main>
+      </body>
+      </html>
+    `);
+});
+
+// 6. Schedule Page (Placeholder)
+app.get('/schedule', (c) => {
+     return c.html(html`
+      <!DOCTYPE html>
+      <html lang="en">
+      ${head}
+      <body class="flex h-screen overflow-hidden">
+          <aside class="w-20 lg:w-64 bg-white shadow-nav flex flex-col justify-between z-20">
+               <div>
+                  <div class="h-20 flex items-center justify-center lg:justify-start lg:px-8 border-b border-gray-100">
+                      <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-coral">L.AI</span>
+                      <span class="hidden lg:inline ml-2 font-bold text-gray-700 tracking-tight">Vivid</span>
+                  </div>
+                  <nav class="mt-8 space-y-2">
+                      <a href="/" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Dashboard</a>
+                      <a href="/integrations" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Integrations</a>
+                      <a href="/schedule" class="sidebar-link active flex items-center px-8 py-4 text-gray-500 hover:text-brand-purple group">Schedule</a>
+                      <a href="/auth/logout" class="sidebar-link flex items-center px-8 py-4 text-gray-500 hover:text-red-500 group">Logout</a>
+                  </nav>
+              </div>
+          </aside>
+          <main class="flex-1 p-12 bg-white flex flex-col items-center justify-center text-center">
+              <div class="bg-gray-50 p-12 rounded-full mb-6">
+                  <span class="text-6xl">🗓️</span>
+              </div>
+              <h1 class="text-3xl font-bold text-gray-800 mb-2">Schedule Coming Soon</h1>
+              <p class="text-gray-500 max-w-md mx-auto">This feature is currently under development. Soon you'll be able to schedule posts for auto-publishing.</p>
+              <a href="/" class="mt-8 inline-block bg-brand-purple text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">Back to Dashboard</a>
+          </main>
+      </body>
+      </html>
+     `);
+});
+
 
 // --- Server ---
 console.log(`Server running on port ${PORT}`);
