@@ -11,15 +11,15 @@ services:
     ports:
       - "6543:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
-    restart: always
+    networks:
+      - linkerai-net
 
   app:
     build: .
     container_name: linkerai-app
 
     environment:
-      - DATABASE_URL=postgresql://user:password@linkerai-db:5432/linkerai
+      - DATABASE_URL=postgresql://user:password@db:5432/linkerai
       - DATABASE_SSL=false
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
@@ -30,6 +30,12 @@ services:
     depends_on:
       - db
     restart: always
+    networks:
+      - linkerai-net
 
 volumes:
   db_data:
+
+networks:
+  linkerai-net:
+    driver: bridge
