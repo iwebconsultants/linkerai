@@ -8,6 +8,8 @@ import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
 import parser from 'cron-parser';
+import fs from 'fs';
+import path from 'path';
 
 // --- Configuration ---
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
