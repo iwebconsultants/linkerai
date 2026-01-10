@@ -14,5 +14,22 @@ services:
       - db_data:/var/lib/postgresql/data
     restart: always
 
+  app:
+    build: .
+    container_name: linkerai-app
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/linkerai
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
+      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+      - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI}
+      - API_SECRET=${API_SECRET}
+      - NODE_ENV=production
+    depends_on:
+      - db
+    restart: always
+
 volumes:
   db_data:
