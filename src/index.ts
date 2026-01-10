@@ -7,7 +7,7 @@ import { setCookie, getCookie } from 'hono/cookie';
 import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
-import parser from 'cron-parser';
+import { parseExpression } from 'cron-parser';
 
 // --- Configuration ---
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -304,7 +304,7 @@ async function schedulerLoop() {
                 } finally {
                     // 5. Reschedule
                     try {
-                        const interval = parser.parseExpression(job.cron_expression);
+                        const interval = parseExpression(job.cron_expression);
                         const nextRun = interval.next().toDate();
                         await query('UPDATE scheduled_jobs SET next_run_at = $1 WHERE id = $2', [nextRun, job.id]);
                         console.log(`Rescheduled Job ${job.id} to ${nextRun}`);
@@ -743,7 +743,7 @@ app.post('/api/jobs', async (c) => {
     if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
     
     // Calculator next run
-    const interval = parser.parseExpression(cron);
+    const interval = parseExpression(cron);
     const nextRun = interval.next().toDate();
 
     await query('INSERT INTO scheduled_jobs (name, template_id, cron_expression, next_run_at, topic_preset) VALUES ($1, $2, $3, $4, $5)', 
