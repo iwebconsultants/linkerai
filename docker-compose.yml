@@ -32,6 +32,7 @@ services:
     restart: always
     networks:
       - linkerai-net
+      - dokploy-network
 
 volumes:
   db_data:
@@ -39,3 +40,5 @@ volumes:
 networks:
   linkerai-net:
     driver: bridge
+  dokploy-network:
+    external: true
