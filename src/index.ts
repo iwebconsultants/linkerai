@@ -13,6 +13,7 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Global key, or override per user/credential
 const API_SECRET = process.env.API_SECRET || 'changeme';
+const SUPER_ADMIN_USERNAME = process.env.SUPER_ADMIN_USERNAME || 'info@iwebx.com.au';
 const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'admin123';
 const LINKEDIN_API_VERSION = '202401'; // Adjust as needed
 
@@ -22,6 +23,8 @@ const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
+
+
 
 // --- AI Setup ---
 // We initialize this per request if we support multiple keys, but for now global or first cred
@@ -152,25 +155,30 @@ async function runResearch(topic: string): Promise<string> {
 }
 
 async function generatePostText(topic: string, research: string, tone: string = "Professional, engaging, and thought-provoking") {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-    const prompt = `
-    Context: You are a top-tier LinkedIn Ghostwriter.
-    Topic: ${topic}
-    Research: ${research}
-    Tone: ${tone}
-    
-    Task: Write a high-performing LinkedIn post.
-    Structure:
-    1. Hook: Grab attention immediately.
-    2. Body: Provide value, insights, or a story based on the research.
-    3. Conclusion: Strong takeaway.
-    4. Call to Action (CTA): Engage the audience.
-    
-    Format: Clean spacing, use emojis sparingly but effectively. Do NOT include potential hashtags at the bottom yet, return them separately if possible, or just include them naturally.
-    `;
-    
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const prompt = `
+        Context: You are a top-tier LinkedIn Ghostwriter.
+        Topic: ${topic}
+        Research: ${research}
+        Tone: ${tone}
+        
+        Task: Write a high-performing LinkedIn post.
+        Structure:
+        1. Hook: Grab attention immediately.
+        2. Body: Provide value, insights, or a story based on the research.
+        3. Conclusion: Strong takeaway.
+        4. Call to Action (CTA): Engage the audience.
+        
+        Format: Clean spacing, use emojis sparingly but effectively. Do NOT include potential hashtags at the bottom yet, return them separately if possible, or just include them naturally.
+        `;
+        
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+    } catch (e: any) {
+        console.error("Generate Post Error:", e);
+        return `⚠️ Could not generate post content due to AI provider error: ${e.message || 'Unknown error'}. Please try again later.`;
+    }
 }
 
 async function generateImage(topic: string): Promise<string> { // Returns Base64
@@ -500,13 +508,22 @@ app.get('/', async (c) => {
 });
 
 // 2. Auth Routes
+// 2. Auth Routes
 app.post('/auth/login', async (c) => {
     const body = await c.req.parseBody();
-    if (body.username === 'admin' && body.password === SUPER_ADMIN_PASSWORD) {
+    console.log('Login Attempt:', { 
+        receivedUser: body.username, 
+        expectedUser: SUPER_ADMIN_USERNAME, 
+        // expectedPass: SUPER_ADMIN_PASSWORD // Don't log pass for security in prod, but ok for local debug
+    });
+
+    if (body.username === SUPER_ADMIN_USERNAME && body.password === SUPER_ADMIN_PASSWORD) {
+        console.log('Login Success');
         setCookie(c, 'auth', 'true', { httpOnly: true, path: '/' });
         return c.redirect('/');
     }
-    return c.redirect('/');
+    console.log('Login Failed');
+    return c.redirect('/?error=invalid');
 });
 
 app.get('/auth/logout', (c) => {
