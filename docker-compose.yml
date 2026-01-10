@@ -11,6 +11,8 @@ services:
     ports:
       - "6543:5432"
     volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: always
     networks:
       - linkerai-net
 
