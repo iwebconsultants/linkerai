@@ -698,17 +698,7 @@ app.get('/', async (c) => {
       </html>
     `);
     
-    } catch (e: any) {
-        console.error('Dashboard Error:', e);
-        return c.html(html`
-            <div style="padding: 50px; text-align: center; font-family: sans-serif;">
-                <h1>⚠️ System Error</h1>
-                <p>Unable to load dashboard. The database might be offline or initializing.</p>
-                <p style="color: red;">${e.message}</p>
-                <a href="/">Retry</a>
-            </div>
-        `);
-    }
+
 });
 
 // 2. Auth Routes
