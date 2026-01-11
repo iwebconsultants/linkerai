@@ -7,7 +7,7 @@ import { setCookie, getCookie } from 'hono/cookie';
 import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
-import parseExpression from 'cron-parser';
+import parser from 'cron-parser';
 import fs from 'fs';
 import path from 'path';
 
@@ -306,7 +306,7 @@ async function schedulerLoop() {
                 } finally {
                     // 5. Reschedule
                     try {
-                        const interval = parseExpression(job.cron_expression);
+                        const interval = parser.parse(job.cron_expression);
                         const nextRun = interval.next().toDate();
                         await query('UPDATE scheduled_jobs SET next_run_at = $1 WHERE id = $2', [nextRun, job.id]);
                         console.log(`Rescheduled Job ${job.id} to ${nextRun}`);
@@ -777,7 +777,7 @@ app.post('/api/jobs', async (c) => {
         if (body.frequency === 'weekly') cron = '0 9 * * 1'; // 9am Mon
         
         // Calculator next run
-        const interval = parseExpression(cron);
+        const interval = parser.parse(cron);
         // Actually, let's try to align with what we think works. 
         // If previous code was `parser.parse(cron)` and it compiled, then maybe that's right.
         // BUT standard cron-parser is `parseExpression`.
