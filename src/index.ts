@@ -7,7 +7,7 @@ import { setCookie, getCookie } from 'hono/cookie';
 import pkg from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import 'dotenv/config';
-import { parseExpression } from 'cron-parser';
+import parseExpression from 'cron-parser';
 import fs from 'fs';
 import path from 'path';
 
